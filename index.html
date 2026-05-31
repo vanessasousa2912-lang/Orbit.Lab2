@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minecraft Creative - Luis Edition V5.3</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/jwagner/simplex-noise.js/simplex-noise.min.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #000; color: white; user-select: none; }
+        canvas { display: block; }
+        #ui-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        .screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(0,0,0,0.85); pointer-events: all; z-index: 100; }
+        .hidden { display: none !important; }
+        
+        .menu-card { background: #333; padding: 25px; border: 4px solid #000; display: flex; flex-direction: column; gap: 12px; width: 380px; text-align: center; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+        .btn-mine { padding: 10px; background: #555; border: 3px solid #000; color: white; cursor: pointer; font-weight: bold; text-transform: uppercase; font-family: inherit; }
+        .btn-mine:hover { background: #777; border-color: #fff; }
+        .btn-danger { background: #822; }
+        .btn-danger:hover { background: #a33; }
+        
+        input { padding: 10px; background: #222; border: 2px solid #555; color: white; font-family: inherit; margin-bottom: 5px; }
+
+        #game-hud { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        #crosshair { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 24px; opacity: 0.8; }
+        
+        #inventory-bar { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; gap: 5px; background: rgba(0,0,0,0.7); padding: 6px; border: 3px solid #555; pointer-events: all; }
+        .slot { width: 50px; height: 50px; border: 3px solid #444; display: flex; align-items: center; justify-content: center; background: #222; position: relative; }
+        .slot.selected { border-color: #fff; background: #666; }
+        .slot-img { width: 35px; height: 35px; }
+
+        .world-list { max-height: 180px; overflow-y: auto; margin-bottom: 10px; display: flex; flex-direction: column; gap: 5px; background: #222; padding: 5px; border: 2px solid #000; }
+        .world-item { background: #444; padding: 10px; cursor: pointer; border: 1px solid #666; font-size: 14px; text-align: left; display: flex; justify-content: space-between; }
+        .world-item:hover { background: #555; border-color: #fff; }
+
+        #mode-indicator { position: absolute; bottom: 85px; left: 20px; background: rgba(0,0,0,0.5); padding: 5px 10px; font-size: 12px; border-left: 4px solid #5d9944; }
+        
+        .lang-selector { display: flex; gap: 5px; justify-content: center; margin-bottom: 10px; }
+        .lang-btn { background: #444; border: 1px solid #666; color: white; padding: 3px 8px; cursor: pointer; font-size: 10px; }
+        .lang-btn.active { border-color: #5d9944; background: #222; }
+
+        #save-status { position: absolute; top: 20px; left: 20px; font-size: 12px; opacity: 0.6; }
+    </style>
+</head>
+<body>
+
+    <div id="ui-overlay">
+        <!-- Main Menu -->
+        <div id="menu-screen" class="screen">
+            <div class="menu-card">
+                <div class="lang-selector">
+                    <button class="lang-btn active" onclick="setLang('pt')">PT</button>
+                    <button class="lang-btn" onclick="setLang('en')">EN</button>
+                    <button class="lang-btn" onclick="setLang('es')">ES</button>
+                </div>
+                <h1 style="margin: 0; color: #5d9944; text-shadow: 2px 2px #000;">MINECRAFT</h1>
+                <p style="margin: -5px 0 10px 0; font-size: 10px; letter-spacing: 2px;">LUIS EDITION - V5.3</p>
+                <div class="world-list" id="world-list"></div>
+                <button class="btn-mine" data-i18n="create_btn" onclick="showCreateScreen()">Criar Novo Mundo</button>
+            </div>
+        </div>
+
+        <!-- Create Screen -->
+        <div id="create-screen" class="screen hidden">
+            <div class="menu-card">
+                <h2 data-i18n="new_world_title">Novo Mundo</h2>
+                <input type="text" id="world-name" data-i18n-placeholder="name_placeholder" maxlength="20">
+                <input type="text" id="world-seed" data-i18n-placeholder="seed_placeholder">
+                <button class="btn-mine" data-i18n="create_confirm" onclick="createNewWorld()">Criar</button>
+                <button class="btn-mine btn-danger" data-i18n="cancel" onclick="hideCreateScreen()">Cancelar</button>
+            </div>
+        </div>
+
+        <!-- Options Screen -->
+        <div id="options-screen" class="screen hidden">
+            <div class="menu-card">
+                <h2 id="selected-world-title">Mundo</h2>
+                <button class="btn-mine" data-i18n="play" onclick="playSelectedWorld()">Jogar</button>
+                <button class="btn-mine" data-i18n="rename" onclick="renameSelectedWorld()">Renomear</button>
+                <button class="btn-mine btn-danger" data-i18n="delete" onclick="deleteSelectedWorld()">Excluir</button>
+                <button class="btn-mine" data-i18n="back" onclick="hideOptionsScreen()">Voltar</button>
+            </div>
+        </div>
+
+        <!-- Game HUD -->
+        <div id="game-hud" class="hidden">
+            <div id="save-status"></div>
+            <div id="crosshair">+</div>
+            <div id="mode-indicator" data-i18n="creative_mode">MODO CRIATIVO</div>
+            <div id="inventory-bar"></div>
+            <div id="time-display" style="position: absolute; top: 20px; right: 20px; font-size: 14px; background: rgba(0,0,0,0.5); padding: 5px 10px;">08:00</div>
+        </div>
+    </div>
+
+    <script>
+        // --- TRANSLATIONS ---
+        const i18n = {
+            pt: {
+                create_btn: "Criar Novo Mundo",
+                new_world_title: "Novo Mundo Criativo",
+                name_placeholder: "Nome do Mundo",
+                seed_placeholder: "Seed (Opcional)",
+                create_confirm: "Criar",
+                cancel: "Cancelar",
+                play: "Jogar",
+                rename: "Renomear",
+                delete: "Excluir",
+                back: "Voltar",
+                creative_mode: "MODO CRIATIVO",
+                flying: "VOANDO",
+                empty_worlds: "Sem mundos salvos",
+                rename_prompt: "Novo nome do mundo:",
+                saving: "Salvando...",
+                saved: "Progresso salvo!"
+            },
+            en: {
+                create_btn: "Create New World",
+                new_world_title: "New Creative World",
+                name_placeholder: "World Name",
+                seed_placeholder: "Seed (Optional)",
+                create_confirm: "Create",
+                cancel: "Cancel",
+                play: "Play",
+                rename: "Rename",
+                delete: "Delete",
+                back: "Back",
+                creative_mode: "CREATIVE MODE",
+                flying: "FLYING",
+                empty_worlds: "No worlds saved",
+                rename_prompt: "New world name:",
+                saving: "Saving...",
+                saved: "Progress saved!"
+            },
+            es: {
+                create_btn: "Crear Nuevo Mundo",
+                new_world_title: "Nuevo Mundo Creativo",
+                name_placeholder: "Nombre del Mundo",
+                seed_placeholder: "Seed (Opcional)",
+                create_confirm: "Crear",
+                cancel: "Cancelar",
+                play: "Jugar",
+                rename: "Renombrar",
+                delete: "Eliminar",
+                back: "Volver",
+                creative_mode: "MODO CREATIVO",
+                flying: "VOLANDO",
+                empty_worlds: "Sin mundos guardados",
+                rename_prompt: "Nuevo nombre del mundo:",
+                saving: "Guardando...",
+                saved: "¡Progreso guardado!"
+            }
+        };
+
+        let currentLang = 'pt';
+
+        function setLang(lang) {
+            currentLang = lang;
+            document.querySelectorAll('.lang-btn').forEach(b => b.classList.remove('active'));
+            const btn = document.querySelector(`.lang-btn[onclick="setLang('${lang}')"]`);
+            if(btn) btn.classList.add('active');
+            updateUIStrings();
+            refreshWorldList();
+        }
+
+        function updateUIStrings() {
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                const key = el.getAttribute('data-i18n');
+                el.innerText = i18n[currentLang][key] || key;
+            });
+            document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+                const key = el.getAttribute('data-i18n-placeholder');
+                el.placeholder = i18n[currentLang][key] || key;
+            });
+        }
+
+        // --- ENGINE CONFIG ---
+        const CHUNK_SIZE = 16;
+        const RENDER_DIST = 3; 
+        const WATER_LEVEL = 10;
+        const PLAYER_HEIGHT = 1.8;
+        let simplex = new SimplexNoise();
+        let simplexBiomes = new SimplexNoise("biomes");
+        
+        const BLOCK_DATA = {
+            grass: { color: '#5d9944', solid: true },
+            dirt: { color: '#79553a', solid: true },
+            stone: { color: '#888888', solid: true },
+            sand: { color: '#ddd1a3', solid: true },
+            wood: { color: '#543d21', solid: true },
+            leaf: { color: '#2d5a27', solid: true },
+            water: { color: '#3366ff', solid: false, opacity: 0.6, water: true }, // Adicionado água ao inventário
+            planks: { color: '#a27a4e', solid: true },
+            glass: { color: '#e0f7fa', solid: true, opacity: 0.3 }
+        };
+
+        const inventory_list = ['grass', 'dirt', 'stone', 'planks', 'wood', 'leaf', 'sand', 'water', 'glass'];
+        let selectedSlot = 0;
+
+        const textures = {};
+        Object.keys(BLOCK_DATA).forEach(type => {
+            const canvas = document.createElement('canvas');
+            canvas.width = 16; canvas.height = 16;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = BLOCK_DATA[type].color;
+            ctx.fillRect(0, 0, 16, 16);
+            
+            // Desenha os pontos (ruído) e a grade apenas se NÃO for água
+            if (type !== 'water') {
+                for(let i=0; i<30; i++) {
+                    ctx.fillStyle = `rgba(0,0,0,${Math.random()*0.15})`;
+                    ctx.fillRect(Math.random()*16, Math.random()*16, 1, 1);
+                }
+                ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+                ctx.strokeRect(0, 0, 16, 16);
+            }
+            
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.magFilter = THREE.NearestFilter;
+            textures[type] = tex;
+        });
+
+        // --- GAME STATE ---
+        let scene, camera, renderer, clock, sun, moon, cloudsGroup;
+        let worldMap = new Map();
+        let chunkMeshes = new Map();
+        let keys = {};
+        let velocity = new THREE.Vector3();
+        let lookEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+        let gameTime = 8;
+        let currentWorldId = null;
+        let isFlying = false;
+        let lastJumpTap = 0;
+        let isGameReady = false;
+
+        function initEngine() {
+            if(renderer) return;
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ antialias: false });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+
+            // Sun & Moon
+            const sunGeo = new THREE.BoxGeometry(4, 4, 4);
+            sun = new THREE.Mesh(sunGeo, new THREE.MeshBasicMaterial({ color: 0xffff00 }));
+            scene.add(sun);
+            const moonGeo = new THREE.BoxGeometry(3, 3, 3);
+            moon = new THREE.Mesh(moonGeo, new THREE.MeshBasicMaterial({ color: 0xcccccc }));
+            scene.add(moon);
+
+            // Clouds
+            cloudsGroup = new THREE.Group();
+            for(let i=0; i<20; i++) {
+                const cloud = new THREE.Mesh(
+                    new THREE.BoxGeometry(12, 1, 12),
+                    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 })
+                );
+                cloud.position.set(Math.random()*400-200, 45, Math.random()*400-200);
+                cloudsGroup.add(cloud);
+            }
+            scene.add(cloudsGroup);
+
+            clock = new THREE.Clock();
+            animate();
+        }
+
+        // --- WORLD GEN ---
+        function getBiome(x, z) {
+            const v = simplexBiomes.noise2D(x/250, z/250);
+            if (v < -0.3) return 'DESERTO';
+            if (v > 0.4) return 'FLORESTA';
+            return 'PLANICIE';
+        }
+
+        function generateChunk(cx, cz) {
+            const key = `${cx},${cz}`;
+            if (worldMap.has(key + "_gen")) return;
+            worldMap.set(key + "_gen", true);
+
+            for(let x=0; x<CHUNK_SIZE; x++) {
+                for(let z=0; z<CHUNK_SIZE; z++) {
+                    const wx = cx * CHUNK_SIZE + x;
+                    const wz = cz * CHUNK_SIZE + z;
+                    const biome = getBiome(wx, wz);
+                    
+                    let h;
+                    if(biome === 'PLANICIE') h = Math.floor(simplex.noise2D(wx/60, wz/60) * 4 + 13);
+                    else if(biome === 'DESERTO') h = Math.floor(simplex.noise2D(wx/100, wz/100) * 2 + 12);
+                    else h = Math.floor(simplex.noise2D(wx/40, wz/40) * 8 + 15);
+
+                    for(let y=0; y<25; y++) {
+                        let type = null;
+                        if(y <= h) {
+                            if(y === h) type = (biome === 'DESERTO') ? 'sand' : 'grass';
+                            else if(y > h - 3) type = (biome === 'DESERTO') ? 'sand' : 'dirt';
+                            else type = 'stone';
+                        } else if (y <= WATER_LEVEL) {
+                            type = 'water_7'; // Água gerada com nível máximo (fonte)
+                        }
+                        if(type) worldMap.set(`${wx},${y},${wz}`, type);
+                    }
+
+                    if(h > WATER_LEVEL) {
+                        const r = Math.random();
+                        if(biome === 'FLORESTA' && r < 0.05) createTree(wx, h+1, wz);
+                        else if(biome === 'PLANICIE' && r < 0.006) createTree(wx, h+1, wz);
+                    }
+                }
+            }
+            renderChunk(cx, cz);
+        }
+
+        function createTree(x, y, z) {
+            for(let i=0; i<5; i++) worldMap.set(`${x},${y+i},${z}`, 'wood');
+            for(let ix=-2; ix<=2; ix++) {
+                for(let iz=-2; iz<=2; iz++) {
+                    for(let iy=3; iy<=5; iy++) {
+                        const k = `${x+ix},${y+iy},${z+iz}`;
+                        if(!worldMap.has(k)) worldMap.set(k, 'leaf');
+                    }
+                }
+            }
+        }
+
+        // Função para checar se o bloco tampa a visão
+        const isOpaque = (t) => t && !t.startsWith('water') && t !== 'glass';
+
+        function renderChunk(cx, cz) {
+            const key = `${cx},${cz}`;
+            if(chunkMeshes.has(key)) scene.remove(chunkMeshes.get(key));
+
+            const group = new THREE.Group();
+            const types = {};
+
+            for(let x=0; x<CHUNK_SIZE; x++) {
+                for(let z=0; z<CHUNK_SIZE; z++) {
+                    for(let y=0; y<45; y++) {
+                        const wx = cx*CHUNK_SIZE+x, wz = cz*CHUNK_SIZE+z;
+                        let type = worldMap.get(`${wx},${y},${wz}`);
+                        if(!type) continue;
+                        
+                        // Checagem avançada de transparência (Permite ver o fundo do mar!)
+                        const n = [
+                            isOpaque(worldMap.get(`${wx+1},${y},${wz}`)), isOpaque(worldMap.get(`${wx-1},${y},${wz}`)),
+                            isOpaque(worldMap.get(`${wx},${y+1},${wz}`)), isOpaque(worldMap.get(`${wx},${y-1},${wz}`)),
+                            isOpaque(worldMap.get(`${wx},${y},${wz+1}`)), isOpaque(worldMap.get(`${wx},${y},${wz-1}`))
+                        ];
+                        if(n.every(v => v)) continue;
+
+                        const baseType = type.startsWith('water') ? 'water' : type;
+                        if(!types[baseType]) types[baseType] = [];
+                        types[baseType].push(new THREE.Matrix4().makeTranslation(wx, y, wz));
+                    }
+                }
+            }
+
+            Object.keys(types).forEach(type => {
+                const isWater = BLOCK_DATA[type].water;
+                const geo = new THREE.BoxGeometry(1, isWater ? 0.85 : 1, 1);
+                const mat = new THREE.MeshStandardMaterial({ 
+                    map: textures[type], 
+                    transparent: !!BLOCK_DATA[type].opacity, 
+                    opacity: BLOCK_DATA[type].opacity || 1,
+                    depthWrite: !isWater // Não escreve no buffer de profundidade para arrumar bugs de vidro/água sobrepostos
+                });
+                const instanced = new THREE.InstancedMesh(geo, mat, types[type].length);
+                types[type].forEach((m, i) => instanced.setMatrixAt(i, m));
+                group.add(instanced);
+            });
+
+            scene.add(group);
+            chunkMeshes.set(key, group);
+        }
+
+        // --- WORLD MGR ---
+        function refreshWorldList() {
+            const list = document.getElementById('world-list');
+            list.innerHTML = '';
+            let worlds = JSON.parse(localStorage.getItem('luis_worlds_v5_1') || '{}');
+            Object.keys(worlds).forEach(id => {
+                const div = document.createElement('div');
+                div.className = 'world-item';
+                div.innerHTML = `<span>${worlds[id].name}</span>`;
+                div.onclick = () => showOptionsScreen(id);
+                list.appendChild(div);
+            });
+            if(Object.keys(worlds).length === 0) list.innerHTML = `<div style="padding:10px; opacity:0.5">${i18n[currentLang].empty_worlds}</div>`;
+        }
+
+        function showCreateScreen() { document.getElementById('menu-screen').classList.add('hidden'); document.getElementById('create-screen').classList.remove('hidden'); }
+        function hideCreateScreen() { document.getElementById('menu-screen').classList.remove('hidden'); document.getElementById('create-screen').classList.add('hidden'); }
+        function showOptionsScreen(id) {
+            currentWorldId = id;
+            let worlds = JSON.parse(localStorage.getItem('luis_worlds_v5_1') || '{}');
+            document.getElementById('selected-world-title').innerText = worlds[id].name;
+            document.getElementById('menu-screen').classList.add('hidden');
+            document.getElementById('options-screen').classList.remove('hidden');
+        }
+        function hideOptionsScreen() { document.getElementById('menu-screen').classList.remove('hidden'); document.getElementById('options-screen').classList.add('hidden'); }
+
+        function createNewWorld() {
+            const name = document.getElementById('world-name').value || "Mundo V5.3";
+            const seed = document.getElementById('world-seed').value || Math.random().toString();
+            const id = 'w_' + Date.now();
+            let worlds = JSON.parse(localStorage.getItem('luis_worlds_v5_1') || '{}');
+            worlds[id] = { name, seed, data: { world: [], pos: {x:0, y:35, z:0}, gameTime: 8, look: {x:0, y:0} } };
+            localStorage.setItem('luis_worlds_v5_1', JSON.stringify(worlds));
+            hideCreateScreen();
+            refreshWorldList();
+        }
+
+        function deleteSelectedWorld() {
+            let worlds = JSON.parse(localStorage.getItem('luis_worlds_v5_1') || '{}');
+            delete worlds[currentWorldId];
+            localStorage.setItem('luis_worlds_v5_1', JSON.stringify(worlds));
+            hideOptionsScreen(); refreshWorldList();
+        }
+
+        function renameSelectedWorld() {
+            const n = prompt(i18n[currentLang].rename_prompt);
+            if(n) {
+                let worlds = JSON.parse(localStorage.getItem('luis_worlds_v5_1') || '{}');
+                worlds[currentWorldId].name = n;
+                localStorage.setItem('luis_worlds_v5_1', JSON.stringify(worlds));
+                document.getElementById('selected-world-title').innerText = n;
+                refreshWorldList();
+            }
+        }
+
+        function playSelectedWorld() {
+            isGameReady = false;
+            initEngine();
+            let worlds = JSON.parse(localStorage.getItem('luis_worlds_v5_1') || '{}');
+            let w = worlds[currentWorldId];
+            simplex = new SimplexNoise(w.seed);
+            simplexBiomes = new SimplexNoise(w.seed + "_b");
+            worldMap = new Map(w.data.world);
+            
+            camera.position.set(w.data.pos.x, w.data.pos.y, w.data.pos.z);
+            if(w.data.look) {
+                lookEuler.x = w.data.look.x;
+                lookEuler.y = w.data.look.y;
+            }
+            gameTime = w.data.gameTime;
+
+            document.getElementById('options-screen').classList.add('hidden');
+            document.getElementById('game-hud').classList.remove('hidden');
+            updateHUD();
+            
+            const cx = Math.floor(camera.position.x / CHUNK_SIZE);
+            const cz = Math.floor(camera.position.z / CHUNK_SIZE);
+            for(let dx=-1; dx<=1; dx++) {
+                for(let dz=-1; dz<=1; dz++) generateChunk(cx+dx, cz+dz);
+            }
+
+            isFlying = true;
+            setTimeout(() => { isFlying = false; isGameReady = true; }, 1000);
+
+            renderer.domElement.requestPointerLock();
+        }
+
+        function updateHUD() {
+            const bar = document.getElementById('inventory-bar'); bar.innerHTML = '';
+            inventory_list.forEach((type, i) => {
+                const div = document.createElement('div');
+                div.className = `slot ${i === selectedSlot ? 'selected' : ''}`;
+                div.innerHTML = `<div class="slot-img" style="background:${BLOCK_DATA[type].color}; border: 1px solid rgba(255,255,255,0.2)"></div>`;
+                bar.appendChild(div);
+            });
+        }
+
+        function saveWorld(silent = false) {
+            if(!currentWorldId || !isGameReady) return;
+            const status = document.getElementById('save-status');
+            if(!silent) status.innerText = i18n[currentLang].saving;
+            
+            let worlds = JSON.parse(localStorage.getItem('luis_worlds_v5_1') || '{}');
+            worlds[currentWorldId].data = { 
+                world: Array.from(worldMap.entries()), 
+                pos: {x:camera.position.x, y:camera.position.y, z:camera.position.z}, 
+                look: {x:lookEuler.x, y:lookEuler.y},
+                gameTime 
+            };
+            localStorage.setItem('luis_worlds_v5_1', JSON.stringify(worlds));
+            
+            if(!silent) {
+                setTimeout(() => { status.innerText = i18n[currentLang].saved; }, 500);
+                setTimeout(() => { status.innerText = ""; }, 3000);
+            }
+        }
+
+        // --- BLOCK PHYSICS (Areia e Água) ---
+        function updateWorldBlocks() {
+            if(!isGameReady) return;
+            const px = Math.floor(camera.position.x);
+            const py = Math.floor(camera.position.y);
+            const pz = Math.floor(camera.position.z);
+            
+            let changes = new Map();
+            let chunksToUpdate = new Set();
+
+            for(let dx=-15; dx<=15; dx++) {
+                for(let dy=-15; dy<=15; dy++) {
+                    for(let dz=-15; dz<=15; dz++) {
+                        let x = px+dx, y = py+dy, z = pz+dz;
+                        let key = `${x},${y},${z}`;
+                        let type = worldMap.get(key);
+                        if(!type) continue;
+                        
+                        // Gravidade da Areia
+                        if(type === 'sand') {
+                            let belowKey = `${x},${y-1},${z}`;
+                            let below = worldMap.get(belowKey);
+                            if(!below || below.startsWith('water')) {
+                                changes.set(key, below || null);
+                                changes.set(belowKey, 'sand');
+                                chunksToUpdate.add(`${Math.floor(x/CHUNK_SIZE)},${Math.floor(z/CHUNK_SIZE)}`);
+                            }
+                        } 
+                        // Fluxo de Água
+                        else if(type.startsWith('water')) {
+                            let level = parseInt(type.split('_')[1] || 7);
+                            let above = worldMap.get(`${x},${y+1},${z}`);
+                            
+                            // Lógica para Secar (se cortarem a fonte)
+                            if(level < 7) {
+                                let hasSource = (above && above.startsWith('water'));
+                                if(!hasSource) {
+                                    for(let [nx, nz] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+                                        let nType = worldMap.get(`${x+nx},${y},${z+nz}`);
+                                        if(nType && nType.startsWith('water')) {
+                                            let nLevel = parseInt(nType.split('_')[1] || 7);
+                                            if(nLevel > level) hasSource = true;
+                                        }
+                                    }
+                                }
+                                if(!hasSource) {
+                                    changes.set(key, null);
+                                    chunksToUpdate.add(`${Math.floor(x/CHUNK_SIZE)},${Math.floor(z/CHUNK_SIZE)}`);
+                                    continue;
+                                }
+                            }
+                            
+                            // Lógica de Cair / Espalhar
+                            let belowKey = `${x},${y-1},${z}`;
+                            let below = worldMap.get(belowKey);
+                            
+                            if(!below) {
+                                // Cai para baixo
+                                changes.set(belowKey, 'water_7');
+                                chunksToUpdate.add(`${Math.floor(x/CHUNK_SIZE)},${Math.floor(z/CHUNK_SIZE)}`);
+                            } else if(level > 1 && BLOCK_DATA[below] && BLOCK_DATA[below].solid) {
+                                // Espalha para os lados se bater no chão
+                                for(let [nx, nz] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+                                    let nKey = `${x+nx},${y},${z+nz}`;
+                                    let nType = worldMap.get(nKey);
+                                    if(!nType && !changes.has(nKey)) {
+                                        changes.set(nKey, `water_${level-1}`);
+                                        chunksToUpdate.add(`${Math.floor((x+nx)/CHUNK_SIZE)},${Math.floor((z+nz)/CHUNK_SIZE)}`);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if(changes.size > 0) {
+                for(let [key, val] of changes.entries()) {
+                    if(val === null) worldMap.delete(key);
+                    else worldMap.set(key, val);
+                }
+                chunksToUpdate.forEach(chunkKey => {
+                    let [cx, cz] = chunkKey.split(',').map(Number);
+                    for(let i=-1; i<=1; i++) {
+                        for(let j=-1; j<=1; j++) renderChunk(cx+i, cz+j);
+                    }
+                });
+            }
+        }
+        setInterval(updateWorldBlocks, 250); // Roda a física 4 vezes por segundo
+
+        // --- PLAYER PHYSICS ---
+        function checkPointCollision(x, y, z) {
+            const rx = Math.round(x);
+            const ry = Math.round(y);
+            const rz = Math.round(z);
+            const block = worldMap.get(`${rx},${ry},${rz}`);
+            return block && !block.startsWith('water') && BLOCK_DATA[block].solid; // Água não tem colisão
+        }
+
+        function checkPlayerCollision(x, y, z) {
+            const r = 0.25; 
+            const h1 = y - PLAYER_HEIGHT + 0.1; 
+            const h2 = y - 0.8; 
+            
+            const points = [
+                [x-r, h1, z-r], [x+r, h1, z-r], [x-r, h1, z+r], [x+r, h1, z+r],
+                [x-r, h2, z-r], [x+r, h2, z-r], [x-r, h2, z+r], [x+r, h2, z+r]
+            ];
+            return points.some(pt => checkPointCollision(pt[0], pt[1], pt[2]));
+        }
+
+        function updatePhysics(delta) {
+            if(!document.pointerLockElement) return;
+
+            const p = camera.position;
+            const move = new THREE.Vector3();
+            if(keys['KeyW']) move.z -= 1; if(keys['KeyS']) move.z += 1;
+            if(keys['KeyA']) move.x -= 1; if(keys['KeyD']) move.x += 1;
+            move.applyEuler(new THREE.Euler(0, lookEuler.y, 0)).normalize();
+
+            // Desacelera se estiver na água
+            const headBlock = worldMap.get(`${Math.round(p.x)},${Math.round(p.y)},${Math.round(p.z)}`);
+            const inWater = headBlock && headBlock.startsWith('water');
+            const speed = isFlying ? 18 : (inWater ? 3.5 : 6.5);
+            
+            if(isFlying) {
+                velocity.y = 0;
+                if(keys['Space']) p.y += speed * delta;
+                if(keys['ShiftLeft']) p.y -= speed * delta;
+                p.add(move.multiplyScalar(speed * delta));
+            } else {
+                velocity.y -= (inWater ? 6 : 24) * delta; // Cai devagar na água
+                
+                const nextX = p.x + move.x * speed * delta;
+                const nextZ = p.z + move.z * speed * delta;
+                
+                if(!checkPlayerCollision(nextX, p.y, p.z)) p.x = nextX;
+                if(!checkPlayerCollision(p.x, p.y, nextZ)) p.z = nextZ;
+                
+                p.y += velocity.y * delta;
+
+                let onGround = false;
+                let groundY = 0;
+                const r = 0.25;
+                const feetY = p.y - PLAYER_HEIGHT;
+                
+                const checkPoints = [
+                    [p.x, feetY - 0.05, p.z],
+                    [p.x-r, feetY - 0.05, p.z-r], [p.x+r, feetY - 0.05, p.z+r],
+                    [p.x-r, feetY - 0.05, p.z+r], [p.x+r, feetY - 0.05, p.z-r]
+                ];
+                
+                for(let pt of checkPoints) {
+                    const ry = Math.round(pt[1]);
+                    const block = worldMap.get(`${Math.round(pt[0])},${ry},${Math.round(pt[2])}`);
+                    if(block && !block.startsWith('water') && BLOCK_DATA[block].solid) {
+                        onGround = true;
+                        groundY = ry + 0.5;
+                        break;
+                    }
+                }
+
+                if(onGround && velocity.y <= 0) {
+                    p.y = groundY + PLAYER_HEIGHT;
+                    velocity.y = 0;
+                    if(keys['Space']) velocity.y = 9;
+                } else if(inWater && keys['Space']) {
+                    velocity.y = 4; // Nada pra cima
+                }
+
+                if(velocity.y > 0 && checkPointCollision(p.x, p.y + 0.2, p.z)) velocity.y = 0;
+            }
+
+            camera.quaternion.setFromEuler(lookEuler);
+            
+            const cx = Math.floor(p.x / CHUNK_SIZE), cz = Math.floor(p.z / CHUNK_SIZE);
+            for(let dx=-RENDER_DIST; dx<=RENDER_DIST; dx++) {
+                for(let dz=-RENDER_DIST; dz<=RENDER_DIST; dz++) generateChunk(cx+dx, cz+dz);
+            }
+
+            updateAtmosphere(delta);
+        }
+
+        function updateAtmosphere(delta) {
+            gameTime += delta * 0.03; if(gameTime > 24) gameTime = 0;
+            const angle = (gameTime / 24) * Math.PI * 2 - Math.PI/2;
+            
+            sun.position.set(camera.position.x + Math.cos(angle)*100, Math.sin(angle)*100, camera.position.z + 50);
+            moon.position.set(camera.position.x + Math.cos(angle+Math.PI)*100, Math.sin(angle+Math.PI)*100, camera.position.z - 50);
+            
+            const isDay = gameTime > 6 && gameTime < 18;
+            scene.background = isDay ? new THREE.Color(0x87ceeb) : new THREE.Color(0x050515);
+            
+            cloudsGroup.position.x = camera.position.x;
+            cloudsGroup.position.z = camera.position.z;
+            cloudsGroup.children.forEach(c => {
+                c.position.x += delta * 1.5;
+                if(c.position.x > 200) c.position.x = -200;
+            });
+
+            const hour = Math.floor(gameTime).toString().padStart(2, '0');
+            const min = Math.floor((gameTime % 1) * 60).toString().padStart(2, '0');
+            document.getElementById('time-display').innerText = `${hour}:${min}`;
+        }
+
+        // --- ACTIONS & EVENTS ---
+        function performRaycastAction(action) {
+            if(!document.pointerLockElement) return;
+            const ray = new THREE.Raycaster(); ray.setFromCamera({x:0, y:0}, camera);
+            
+            if(action === 'break') {
+                let hit = null;
+                for(let i=0; i<70; i++) {
+                    let tp = ray.ray.at(i * 0.1, new THREE.Vector3());
+                    let rx = Math.round(tp.x), ry = Math.round(tp.y), rz = Math.round(tp.z);
+                    const t = worldMap.get(`${rx},${ry},${rz}`);
+                    // Ignora água ao quebrar para focar no bloco do fundo
+                    if(t && !t.startsWith('water')) { hit = { x: rx, y: ry, z: rz }; break; }
+                }
+
+                if(hit) {
+                    worldMap.delete(`${hit.x},${hit.y},${hit.z}`);
+                    for(let x=-1; x<=1; x++) for(let z=-1; z<=1; z++) renderChunk(Math.floor(hit.x/CHUNK_SIZE)+x, Math.floor(hit.z/CHUNK_SIZE)+z);
+                }
+            } else if(action === 'place') {
+                let prev = null;
+                for(let i=0; i<70; i++) {
+                    let tp = ray.ray.at(i * 0.1, new THREE.Vector3());
+                    let rx = Math.round(tp.x), ry = Math.round(tp.y), rz = Math.round(tp.z);
+                    const t = worldMap.get(`${rx},${ry},${rz}`);
+                    if(t && !t.startsWith('water')) {
+                        if(prev) {
+                            let itemToPlace = inventory_list[selectedSlot];
+                            if(itemToPlace === 'water') itemToPlace = 'water_7'; // Coloca água nível máximo
+                            
+                            worldMap.set(`${prev.x},${prev.y},${prev.z}`, itemToPlace);
+                            for(let x=-1; x<=1; x++) for(let z=-1; z<=1; z++) renderChunk(Math.floor(prev.x/CHUNK_SIZE)+x, Math.floor(prev.z/CHUNK_SIZE)+z);
+                        }
+                        break;
+                    }
+                    prev = { x: rx, y: ry, z: rz };
+                }
+            }
+        }
+
+        window.addEventListener('mousedown', e => {
+            if(e.button === 0) performRaycastAction('break');
+            else if(e.button === 2) performRaycastAction('place');
+        });
+
+        window.addEventListener('keydown', e => {
+            keys[e.code] = true;
+            
+            if(e.code === 'KeyQ') performRaycastAction('break');
+            if(e.code === 'KeyE') performRaycastAction('place');
+            
+            if(e.code === 'Space') {
+                const now = Date.now();
+                if(now - lastJumpTap < 300) {
+                    isFlying = !isFlying;
+                    const mode = isFlying ? `${i18n[currentLang].creative_mode} (${i18n[currentLang].flying})` : i18n[currentLang].creative_mode;
+                    document.getElementById('mode-indicator').innerText = mode;
+                }
+                lastJumpTap = now;
+            }
+            if(e.code.startsWith('Digit')) {
+                selectedSlot = (parseInt(e.code.slice(-1)) - 1 + 9) % 9;
+                updateHUD();
+            }
+        });
+        
+        window.addEventListener('keyup', e => keys[e.code] = false);
+        window.addEventListener('mousemove', e => {
+            if(document.pointerLockElement) {
+                lookEuler.y -= e.movementX * 0.002;
+                lookEuler.x -= e.movementY * 0.002;
+                lookEuler.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, lookEuler.x));
+            }
+        });
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = Math.min(clock.getDelta(), 0.1);
+            if(isGameReady) updatePhysics(delta);
+            renderer.render(scene, camera);
+        }
+
+        window.onload = () => {
+            setLang('pt');
+            refreshWorldList();
+        };
+        
+        setInterval(() => saveWorld(true), 15000);
+    </script>
+</body>
+</html>
